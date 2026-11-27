@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
@@ -25,7 +25,8 @@ type NewsPost = {
   publishedAt: string
 }
 
-const CATEGORIES = ['Todas', 'Institucional', 'Programa', 'Educação']
+// Categorias base + as que surgirem nas notícias publicadas pela administração
+const BASE_CATEGORIES = ['Todas', 'Institucional', 'Programa', 'Educação']
 
 export function NewsSection() {
   const [category, setCategory] = useState('Todas')
@@ -52,6 +53,11 @@ export function NewsSection() {
 
   const posts = data?.posts ?? []
 
+  const categories = useMemo(
+    () => Array.from(new Set([...BASE_CATEGORIES, ...posts.map((post) => post.category)])),
+    [posts]
+  )
+
   return (
     <section id="noticias" className="scroll-mt-24 py-16 sm:py-24">
       <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -63,7 +69,7 @@ export function NewsSection() {
 
         <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div role="tablist" aria-label="Filtrar notícias por categoria" className="flex flex-wrap gap-2">
-            {CATEGORIES.map((item) => (
+            {categories.map((item) => (
               <Button
                 key={item}
                 role="tab"

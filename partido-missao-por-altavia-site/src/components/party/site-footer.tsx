@@ -15,6 +15,7 @@ const INFO_LINKS = [
   { href: '/#candidaturas', label: 'Candidaturas' },
   { href: '/#filiacao', label: 'Filie-se' },
   { href: '/#contato', label: 'Contato' },
+  { href: '/admin', label: 'Administração' },
 ]
 
 export function SiteFooter() {
