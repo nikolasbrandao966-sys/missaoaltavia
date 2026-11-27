@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { isAdminRequest } from '@/lib/admin-auth'
 import { deleteCandidacy, updateCandidacy } from '@/lib/data'
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'missao2027'
-
-function isAdmin(req: NextRequest) {
-  const password = req.headers.get('x-admin-password')
-  return password !== null && password === ADMIN_PASSWORD
-}
 
 const candidacySchema = z.object({
   position: z.string().trim().min(2, 'Informe o cargo disputado.').max(120),
@@ -28,7 +22,7 @@ const candidacySchema = z.object({
 // PUT /api/candidacies/[id] — editar candidatura (admin)
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    if (!isAdmin(req)) {
+    if (!isAdminRequest(req)) {
       return NextResponse.json({ error: 'Acesso restrito ao administrador.' }, { status: 401 })
     }
 
@@ -65,7 +59,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 // DELETE /api/candidacies/[id] — excluir candidatura (admin)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    if (!isAdmin(req)) {
+    if (!isAdminRequest(req)) {
       return NextResponse.json({ error: 'Acesso restrito ao administrador.' }, { status: 401 })
     }
 

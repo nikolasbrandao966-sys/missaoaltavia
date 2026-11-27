@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { isAdminRequest } from '@/lib/admin-auth'
 import { createCandidacy, listCandidacies } from '@/lib/data'
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'missao2027'
-
-function isAdmin(req: NextRequest) {
-  const password = req.headers.get('x-admin-password')
-  return password !== null && password === ADMIN_PASSWORD
-}
 
 const candidacySchema = z.object({
   position: z.string().trim().min(2, 'Informe o cargo disputado.').max(120),
@@ -42,7 +36,7 @@ export async function GET() {
 // POST /api/candidacies — registrar candidatura (admin)
 export async function POST(req: NextRequest) {
   try {
-    if (!isAdmin(req)) {
+    if (!isAdminRequest(req)) {
       return NextResponse.json({ error: 'Acesso restrito ao administrador.' }, { status: 401 })
     }
 
