@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { db } from '@/lib/db'
+import { createContactMessage } from '@/lib/data'
 
 const contactSchema = z.object({
   name: z.string().min(3, 'Informe seu nome.').max(120),
@@ -23,13 +23,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 400 })
     }
 
-    await db.contactMessage.create({
-      data: {
-        name: parsed.data.name.trim(),
-        email: parsed.data.email.trim().toLowerCase(),
-        subject: parsed.data.subject,
-        message: parsed.data.message.trim(),
-      },
+    await createContactMessage({
+      name: parsed.data.name.trim(),
+      email: parsed.data.email.trim().toLowerCase(),
+      subject: parsed.data.subject,
+      message: parsed.data.message.trim(),
     })
 
     return NextResponse.json(

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { db } from '@/lib/db'
+import { deleteCandidacy, updateCandidacy } from '@/lib/data'
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'missao2027'
 
@@ -33,10 +33,6 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const { id } = await params
-    const existing = await db.candidacy.findUnique({ where: { id } })
-    if (!existing) {
-      return NextResponse.json({ error: 'Candidatura não encontrada.' }, { status: 404 })
-    }
 
     const body = await req.json()
     const parsed = candidacySchema.safeParse(body)
@@ -46,17 +42,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const data = parsed.data
-    const candidacy = await db.candidacy.update({
-      where: { id },
-      data: {
-        position: data.position,
-        election: data.election,
-        candidate: data.candidate,
-        slogan: data.slogan ? data.slogan : null,
-        proposal: data.proposal ? data.proposal : null,
-        status: data.status,
-      },
+    const candidacy = await updateCandidacy(id, {
+      position: data.position,
+      election: data.election,
+      candidate: data.candidate,
+      slogan: data.slogan ? data.slogan : null,
+      proposal: data.proposal ? data.proposal : null,
+      status: data.status,
     })
+
+    if (!candidacy) {
+      return NextResponse.json({ error: 'Candidatura não encontrada.' }, { status: 404 })
+    }
 
     return NextResponse.json({ ok: true, candidacy })
   } catch (error) {
@@ -73,12 +70,11 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     }
 
     const { id } = await params
-    const existing = await db.candidacy.findUnique({ where: { id } })
-    if (!existing) {
+    const deleted = await deleteCandidacy(id)
+    if (!deleted) {
       return NextResponse.json({ error: 'Candidatura não encontrada.' }, { status: 404 })
     }
 
-    await db.candidacy.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (error) {
     console.error('Erro ao excluir candidatura:', error)

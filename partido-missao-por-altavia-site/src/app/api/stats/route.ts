@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
-import { db } from '@/lib/db'
+import { getStats } from '@/lib/data'
 
 // GET /api/stats — estatísticas institucionais
 export async function GET() {
   try {
-    const stats = await db.partyStat.findMany({ orderBy: { order: 'asc' } })
+    const stats = await getStats()
     return NextResponse.json({ stats })
   } catch (error) {
     console.error('Erro ao buscar estatísticas:', error)

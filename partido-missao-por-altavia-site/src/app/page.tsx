@@ -1,4 +1,4 @@
-import { db } from '@/lib/db'
+import { getNewsBySlug, getStats, listNews } from '@/lib/data'
 import { SiteHeader } from '@/components/party/site-header'
 import { Hero } from '@/components/party/hero'
 import { About } from '@/components/party/about'
@@ -23,19 +23,9 @@ export default async function Home({ searchParams }: PageProps) {
 
   // Sub-página de notícia: /?noticia=slug
   if (slug) {
-    const post = await db.newsPost.findUnique({ where: { slug } })
+    const post = await getNewsBySlug(slug)
     if (post) {
-      const others = await db.newsPost.findMany({
-        where: { slug: { not: post.slug } },
-        orderBy: { publishedAt: 'desc' },
-        take: 3,
-        select: {
-          slug: true,
-          title: true,
-          category: true,
-          publishedAt: true,
-        },
-      })
+      const others = await listNews({ excludeSlug: post.slug, take: 3 })
 
       return (
         <div className="flex min-h-screen flex-col">
@@ -50,7 +40,7 @@ export default async function Home({ searchParams }: PageProps) {
   }
 
   // Página inicial completa
-  const stats = await db.partyStat.findMany({ orderBy: { order: 'asc' } })
+  const stats = await getStats()
 
   return (
     <div className="flex min-h-screen flex-col">

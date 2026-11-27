@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { Prisma } from '@prisma/client'
-import { db } from '@/lib/db'
+import { createMember } from '@/lib/data'
 
 const memberSchema = z.object({
   fullName: z
@@ -38,34 +37,33 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data
-    const member = await db.member.create({
-      data: {
-        fullName: data.fullName.trim(),
-        email: data.email.trim().toLowerCase(),
-        phone: data.phone ? data.phone.trim() : null,
-        city: data.city.trim(),
-        region: data.region,
-        birthYear: data.birthYear ?? null,
-        motivation: data.motivation ? data.motivation.trim() : null,
-      },
+    const result = await createMember({
+      fullName: data.fullName.trim(),
+      email: data.email.trim().toLowerCase(),
+      phone: data.phone ? data.phone.trim() : null,
+      city: data.city.trim(),
+      region: data.region,
+      birthYear: data.birthYear ?? null,
+      motivation: data.motivation ? data.motivation.trim() : null,
     })
+
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: 'Este e-mail já consta em nossa base de filiados.' },
+        { status: 409 }
+      )
+    }
 
     return NextResponse.json(
       {
         ok: true,
-        protocol: member.id.slice(-8).toUpperCase(),
+        protocol: result.id.slice(-8).toUpperCase(),
         message:
           'Filiação registrada! Nosso diretório regional entrará em contato para completar sua inscrição.',
       },
       { status: 201 }
     )
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return NextResponse.json(
-        { error: 'Este e-mail já consta em nossa base de filiados.' },
-        { status: 409 }
-      )
-    }
     console.error('Erro ao registrar filiação:', error)
     return NextResponse.json(
       { error: 'Não foi possível registrar sua filiação. Tente novamente.' },

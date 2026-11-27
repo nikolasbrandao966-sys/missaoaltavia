@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { db } from '@/lib/db'
+import { createCandidacy, listCandidacies } from '@/lib/data'
 
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'missao2027'
 
@@ -28,9 +28,7 @@ const candidacySchema = z.object({
 // GET /api/candidacies — lista pública de candidaturas
 export async function GET() {
   try {
-    const candidacies = await db.candidacy.findMany({
-      orderBy: [{ order: 'asc' }, { createdAt: 'desc' }],
-    })
+    const candidacies = await listCandidacies()
     return NextResponse.json({ candidacies })
   } catch (error) {
     console.error('Erro ao buscar candidaturas:', error)
@@ -56,17 +54,13 @@ export async function POST(req: NextRequest) {
     }
 
     const data = parsed.data
-    const last = await db.candidacy.findFirst({ orderBy: { order: 'desc' } })
-    const candidacy = await db.candidacy.create({
-      data: {
-        position: data.position,
-        election: data.election,
-        candidate: data.candidate,
-        slogan: data.slogan ? data.slogan : null,
-        proposal: data.proposal ? data.proposal : null,
-        status: data.status,
-        order: (last?.order ?? 0) + 1,
-      },
+    const candidacy = await createCandidacy({
+      position: data.position,
+      election: data.election,
+      candidate: data.candidate,
+      slogan: data.slogan ? data.slogan : null,
+      proposal: data.proposal ? data.proposal : null,
+      status: data.status,
     })
 
     return NextResponse.json({ ok: true, candidacy }, { status: 201 })
