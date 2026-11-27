@@ -306,7 +306,7 @@ export function NewsManager({ session }: { session: AdminSession }) {
                 <Skeleton className="h-4 w-full" />
               </CardContent>
             </Card>
-          ))
+          ))}
         </div>
       ) : posts.length === 0 ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed p-12 text-center">
