@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import { Geist, Geist_Mono, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Providers } from "@/components/party/providers";
+import { FIREBASE_GA_ID } from "@/lib/firebase";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -58,6 +60,22 @@ export default function RootLayout({
       >
         <Providers>{children}</Providers>
         <Toaster />
+        {/* Firebase Analytics — Google Analytics do projeto texnk-87824,
+            carregado via gtag.js com o measurementId do Firebase. */}
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${FIREBASE_GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="firebase-gtag-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag() {
+              dataLayer.push(arguments);
+            }
+            gtag("js", new Date());
+            gtag("config", "${FIREBASE_GA_ID}");
+          `}
+        </Script>
       </body>
     </html>
   );
