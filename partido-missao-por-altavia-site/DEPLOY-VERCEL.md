@@ -1,7 +1,9 @@
 # Guia de publicação — Partido Missão por Altávia
 
 Este pacote contém o site completo do Partido Missão por Altávia (PMA):
-Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui + Prisma.
+Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui + Prisma —
+com dados online persistentes no Firebase Realtime Database (projeto texnk-87824)
+e Firebase Analytics.
 
 ## O que há no site
 
@@ -18,6 +20,11 @@ Next.js 16 + TypeScript + Tailwind CSS + shadcn/ui + Prisma.
   - ver o **painel** com contadores e o estado do banco de dados.
 - Notícias e estatísticas institucionais já embutidas no código — o site público funciona
   em qualquer hospedagem, mesmo sem banco de dados configurado.
+- **Banco de dados online incluso (Firebase)**: sem configurar nada na Vercel, tudo o que
+  é registrado no painel — notícias, candidaturas, filiados e mensagens — é gravado no
+  Firebase Realtime Database (projeto texnk-87824, configuração em src/lib/firebase.ts)
+  e sobrevive a novos deploys. Inclui **Firebase Analytics** para acompanhar as visitas
+  no console do Firebase.
 
 ## Como publicar na Vercel com o URL partidomissaoporaltavia.vercel.app
 
@@ -44,23 +51,31 @@ as alterações — a Vercel refaz o deploy automaticamente.
 
 ## O que é permanente e o que é temporário
 
-| Conteúdo | Sem banco configurado | Com DATABASE_URL |
+| Conteúdo | Padrão na Vercel (Firebase incluso) | Com DATABASE_URL (Neon/Supabase) |
 | --- | --- | --- |
-| Notícias, estatísticas e todo o conteúdo institucional | **Permanente** (embutido no código) | Permanente (banco) |
-| Mensagens do formulário de Contato | Temporário* | Permanente (banco) |
-| Filiados (formulário "Filie-se") | Temporário* | Permanente (banco) |
-| Notícias e candidaturas geridas pelo painel | Temporário* | Permanente (banco) |
+| Notícias, estatísticas e todo o conteúdo institucional | **Permanente** (código + Firebase) | Permanente (banco) |
+| Mensagens do formulário de Contato | **Permanente (Firebase)** | Permanente (banco) |
+| Filiados (formulário "Filie-se") | **Permanente (Firebase)** | Permanente (banco) |
+| Notícias e candidaturas geridas pelo painel | **Permanente (Firebase)** | Permanente (banco) |
 
-\* Temporário = fica na memória da hospedagem e pode ser perdido
-em novos deploys. **As notícias institucionais nunca somem**: fazem parte do código do site.
-Para que TUDO fique permanente, conecte um banco gratuito (seção abaixo) — 5 minutos.
+**As notícias institucionais nunca somem**: fazem parte do código do site.
+O Firebase é usado automaticamente quando não há DATABASE_URL; se ele estiver
+inacessível (ex.: rede fora), o site continua funcionando em modo temporário
+em memória — nunca quebra.
 
-## Como tornar tudo permanente (banco de dados grátis, sem editar código)
+## Como tornar tudo permanente
 
-Com um banco PostgreSQL grátis (Neon ou Supabase), tudo o que você registra no painel —
-notícias, candidaturas, filiados e mensagens — passa a ser gravado definitivamente.
-O site se configura sozinho: não é preciso editar código, rodar migrations ou semear dados.
-Passos com o Neon:
+**Já está pronto:** sem configurar nada, o site grava notícias, candidaturas,
+filiados e mensagens no Firebase Realtime Database do projeto texnk-87824.
+Os dados ficam visíveis no [console do Firebase](https://console.firebase.google.com)
+em **Realtime Database** (nó `pma`).
+
+As chamadas ao banco são feitas apenas pelo servidor do site (rotas de API) —
+a URL do banco não aparece no código enviado ao navegador — e a sincronização
+do conteúdo institucional acontece sozinha na primeira leitura.
+
+Preferir um banco PostgreSQL (Neon ou Supabase)? Com DATABASE_URL configurada,
+o Prisma passa a ser usado no lugar do Firebase. Passos com o Neon:
 
 1. Crie uma conta grátis em https://neon.tech e crie um projeto.
 2. Copie a **Connection String** (algo como
@@ -89,11 +104,16 @@ Localmente, basta definir `ADMIN_PASSWORD` no arquivo `.env`.
 
 ## Observações técnicas
 
-- **Sem DATABASE_URL**, o site funciona em modo resiliente: notícias e estatísticas são lidas
-  do conteúdo embutido (src/lib/site-data.ts) e os registros do painel ficam em memória
-  temporária (veja a tabela acima).
-- **Com DATABASE_URL** (SQLite local ou Postgres na Vercel), todas as leituras e escritas
-  usam o Prisma; tabelas e conteúdo institucional são criados/sincronizados automaticamente
-  na primeira leitura.
+- Ordem de prioridade da camada de dados (src/lib/data.ts):
+  1. **DATABASE_URL configurada** (SQLite local ou Postgres na Vercel): todas as leituras
+     e escritas usam o Prisma; tabelas e conteúdo institucional são criados/sincronizados
+     automaticamente na primeira leitura;
+  2. **Sem DATABASE_URL** (padrão no deploy da Vercel): Firebase Realtime Database
+     (REST, chamado pelo servidor em src/lib/firebase-store.ts) — tudo persiste na nuvem
+     e o painel mostra "Banco conectado — registros permanentes";
+  3. **Firebase indisponível** (ex.: rede fora): modo em memória — o site nunca quebra.
+- **Firebase Analytics** (measurementId G-EKQEZZP9JG) é carregado no layout via gtag.js —
+  as visitas aparecem no console do Firebase, em Analytics.
 - Para rodar localmente: `bun install`, copie `.env.example` para `.env`, rode
   `bun scripts/seed-pma.ts` (se quiser resetar os dados) e `bun run dev`.
+  Para testar o modo Firebase localmente (sem Prisma): `bun scripts/test-firebase-mode.ts`.

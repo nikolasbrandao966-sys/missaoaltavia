@@ -1,14 +1,18 @@
 // Camada de dados — Partido Missão por Altávia (PMA)
 //
-// Estratégia de resiliência:
+// Estratégia de resiliência (em ordem de prioridade):
 // - Com DATABASE_URL configurada (SQLite no desenvolvimento local ou um banco
 //   gerenciado como Neon/Supabase em produção): todas as leituras e escritas
 //   usam o Prisma — os registros são permanentes. Na primeira leitura, as
 //   tabelas são criadas caso não existam e o conteúdo institucional embutido
 //   (notícias e estatísticas) é sincronizado para o banco uma única vez,
 //   controlado por um marcador em PartyStat.
-// - Sem DATABASE_URL (ex.: deploy na Vercel sem variáveis de ambiente):
-//   as leituras combinam o conteúdo institucional embutido (site-data.ts) com
+// - Sem DATABASE_URL, com o Firebase Realtime Database acessível: leituras e
+//   escritas passam a ser persistentes na nuvem (projeto texnk-87824), via
+//   REST, no servidor — o que for editado na área do administrador sobrevive
+//   a redeploys e a visitas futuras (src/lib/firebase-store.ts).
+// - Sem DATABASE_URL e com o Firebase indisponível (ex.: rede fora): as
+//   leituras combinam o conteúdo institucional embutido (site-data.ts) com
 //   o que for publicado pela área do administrador em memória; as escritas
 //   também ficam em memória — o site nunca quebra com erro de banco.
 import { Prisma } from '@prisma/client'
@@ -19,6 +23,27 @@ import {
   type SiteCandidacy,
   type SiteNewsPost,
 } from '@/lib/site-data'
+import {
+  firebaseIsReady,
+  fbCreateCandidacy,
+  fbCreateContactMessage,
+  fbCreateMember,
+  fbCreateNews,
+  fbDeleteCandidacy,
+  fbDeleteContactMessage,
+  fbDeleteNews,
+  fbGetNewsBySlug,
+  fbGetOverview,
+  fbGetStats,
+  fbListAdminNews,
+  fbListCandidacies,
+  fbListContactMessages,
+  fbListMembers,
+  fbListNews,
+  fbSetContactMessageRead,
+  fbUpdateCandidacy,
+  fbUpdateNews,
+} from '@/lib/firebase-store'
 
 // ---------------------------------------------------------------------------
 // Tipos de entrada
@@ -144,7 +169,7 @@ const SQLITE_DDL = [
   'CREATE TABLE IF NOT EXISTS "Member" ("id" TEXT NOT NULL PRIMARY KEY, "fullName" TEXT NOT NULL, "email" TEXT NOT NULL, "phone" TEXT, "city" TEXT NOT NULL, "region" TEXT NOT NULL, "birthYear" INTEGER, "motivation" TEXT, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
   'CREATE UNIQUE INDEX IF NOT EXISTS "Member_email_key" ON "Member"("email")',
   'CREATE TABLE IF NOT EXISTS "ContactMessage" ("id" TEXT NOT NULL PRIMARY KEY, "name" TEXT NOT NULL, "email" TEXT NOT NULL, "subject" TEXT NOT NULL, "message" TEXT NOT NULL, "read" BOOLEAN NOT NULL DEFAULT false, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
-  'CREATE TABLE IF NOT EXISTS "Candidacy" ("id" TEXT NOT NULL PRIMARY KEY, "position" TEXT NOT NULL, "election" TEXT NOT NULL, "candidate" TEXT NOT NULL, "slogan" TEXT, "proposal" TEXT, "status" TEXT NOT NULL DEFAULT \'Anunciada\', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
+  'CREATE TABLE IF NOT EXISTS "Candidacy" ("id" TEXT NOT NULL PRIMARY KEY, "position" TEXT NOT NULL, "election" TEXT NOT NULL, "candidate" TEXT NOT NULL, "slogan" TEXT, "proposal" TEXT, "status" TEXT NOT NULL DEFAULT 'Anunciada', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)',
   'CREATE TABLE IF NOT EXISTS "PartyStat" ("id" TEXT NOT NULL PRIMARY KEY, "key" TEXT NOT NULL, "label" TEXT NOT NULL, "value" INTEGER NOT NULL, "suffix" TEXT, "order" INTEGER NOT NULL)',
   'CREATE UNIQUE INDEX IF NOT EXISTS "PartyStat_key_key" ON "PartyStat"("key")',
 ]
@@ -155,7 +180,7 @@ const POSTGRES_DDL = [
   'CREATE TABLE IF NOT EXISTS "Member" ("id" TEXT NOT NULL, "fullName" TEXT NOT NULL, "email" TEXT NOT NULL, "phone" TEXT, "city" TEXT NOT NULL, "region" TEXT NOT NULL, "birthYear" INTEGER, "motivation" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "Member_pkey" PRIMARY KEY ("id"))',
   'CREATE UNIQUE INDEX IF NOT EXISTS "Member_email_key" ON "Member"("email")',
   'CREATE TABLE IF NOT EXISTS "ContactMessage" ("id" TEXT NOT NULL, "name" TEXT NOT NULL, "email" TEXT NOT NULL, "subject" TEXT NOT NULL, "message" TEXT NOT NULL, "read" BOOLEAN NOT NULL DEFAULT false, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "ContactMessage_pkey" PRIMARY KEY ("id"))',
-  'CREATE TABLE IF NOT EXISTS "Candidacy" ("id" TEXT NOT NULL, "position" TEXT NOT NULL, "election" TEXT NOT NULL, "candidate" TEXT NOT NULL, "slogan" TEXT, "proposal" TEXT, "status" TEXT NOT NULL DEFAULT \'Anunciada\', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "Candidacy_pkey" PRIMARY KEY ("id"))',
+  'CREATE TABLE IF NOT EXISTS "Candidacy" ("id" TEXT NOT NULL, "position" TEXT NOT NULL, "election" TEXT NOT NULL, "candidate" TEXT NOT NULL, "slogan" TEXT, "proposal" TEXT, "status" TEXT NOT NULL DEFAULT 'Anunciada', "order" INTEGER NOT NULL DEFAULT 0, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "Candidacy_pkey" PRIMARY KEY ("id"))',
   'CREATE TABLE IF NOT EXISTS "PartyStat" ("id" TEXT NOT NULL, "key" TEXT NOT NULL, "label" TEXT NOT NULL, "value" INTEGER NOT NULL, "suffix" TEXT, "order" INTEGER NOT NULL, CONSTRAINT "PartyStat_pkey" PRIMARY KEY ("id"))',
   'CREATE UNIQUE INDEX IF NOT EXISTS "PartyStat_key_key" ON "PartyStat"("key")',
 ]
@@ -246,6 +271,13 @@ export async function getStats() {
       logDbUnavailable('getStats', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbGetStats()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   return FALLBACK_STATS
 }
 
@@ -277,6 +309,13 @@ export async function listNews(filter: NewsFilter = {}): Promise<SiteNewsPost[]>
       }
     } catch (error) {
       logDbUnavailable('listNews', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbListNews(filter)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   return filterMemoryNews(filter)
@@ -326,6 +365,13 @@ export async function getNewsBySlug(slug: string): Promise<SiteNewsPost | null> 
       logDbUnavailable('getNewsBySlug', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbGetNewsBySlug(slug)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   const memoryPost = memory.newsPosts.find((post) => post.slug === slug)
   if (memoryPost) return memoryPost.published ? memoryPost : null
   const fallbackPost = FALLBACK_NEWS.find((post) => post.slug === slug)
@@ -346,6 +392,13 @@ export async function listCandidacies(): Promise<SiteCandidacy[]> {
       }
     } catch (error) {
       logDbUnavailable('listCandidacies', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbListCandidacies()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   return [...memory.candidacies].sort(
@@ -372,6 +425,13 @@ export async function createContactMessage(data: NewContactMessage): Promise<voi
       logDbUnavailable('createContactMessage', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbCreateContactMessage(data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   memory.contactMessages.push({ ...data, id: newId('contato'), createdAt: new Date(), read: false })
 }
 
@@ -392,6 +452,13 @@ export async function createMember(
         return { ok: false, duplicate: true }
       }
       logDbUnavailable('createMember', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbCreateMember(data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   if (memory.members.some((member) => member.email === data.email)) {
@@ -417,6 +484,13 @@ export async function listAdminNews(): Promise<AdminNewsPost[]> {
       }
     } catch (error) {
       logDbUnavailable('listAdminNews', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbListAdminNews()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   const memorySlugs = new Set(memory.newsPosts.map((post) => post.slug))
@@ -461,6 +535,13 @@ export async function createNews(
         return { ok: false, duplicate: true }
       }
       logDbUnavailable('createNews', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbCreateNews(data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   if (
@@ -528,6 +609,13 @@ export async function updateNews(
       logDbUnavailable('updateNews', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbUpdateNews(id, data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   if (id.startsWith('emb-')) {
     const slug = id.slice('emb-'.length)
     const existing = memory.newsPosts.find((post) => post.slug === slug)
@@ -537,7 +625,12 @@ export async function updateNews(
     }
     const base = FALLBACK_NEWS.find((post) => post.slug === slug)
     if (!base || memory.deletedNewsSlugs.includes(slug)) return null
-    const copy: AdminNewsPost = { ...base, id: newId('noticia'), ...data }
+    const copy: AdminNewsPost = {
+      ...base,
+      id: newId('noticia'),
+      ...data,
+      published: data.published ?? true,
+    }
     memory.newsPosts.push(copy)
     return copy
   }
@@ -572,6 +665,13 @@ export async function deleteNews(id: string): Promise<boolean> {
       return false
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbDeleteNews(id)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   if (id.startsWith('emb-')) {
     const slug = id.slice('emb-'.length)
     memory.deletedNewsSlugs.push(slug)
@@ -602,6 +702,13 @@ export async function createCandidacy(data: NewCandidacy): Promise<SiteCandidacy
       }
     } catch (error) {
       logDbUnavailable('createCandidacy', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbCreateCandidacy(data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   const order =
@@ -635,6 +742,13 @@ export async function updateCandidacy(
       logDbUnavailable('updateCandidacy', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbUpdateCandidacy(id, data)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   const existing = memory.candidacies.find((candidacy) => candidacy.id === id)
   if (!existing) return null
   Object.assign(existing, data)
@@ -659,6 +773,13 @@ export async function deleteCandidacy(id: string): Promise<boolean> {
       return false
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbDeleteCandidacy(id)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   const index = memory.candidacies.findIndex((candidacy) => candidacy.id === id)
   if (index === -1) return false
   memory.candidacies.splice(index, 1)
@@ -681,6 +802,13 @@ export async function listMembers(): Promise<AdminMember[]> {
       logDbUnavailable('listMembers', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbListMembers()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   return [...memory.members].sort(
     (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
   )
@@ -696,6 +824,13 @@ export async function listContactMessages(): Promise<AdminContactMessage[]> {
       }
     } catch (error) {
       logDbUnavailable('listContactMessages', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbListContactMessages()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   return [...memory.contactMessages].sort(
@@ -722,6 +857,13 @@ export async function setContactMessageRead(
       logDbUnavailable('setContactMessageRead', error)
     }
   }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbSetContactMessageRead(id, read)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
+    }
+  }
   const existing = memory.contactMessages.find((message) => message.id === id)
   if (!existing) return null
   existing.read = read
@@ -744,6 +886,13 @@ export async function deleteContactMessage(id: string): Promise<boolean> {
       }
       logDbUnavailable('deleteContactMessage', error)
       return false
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbDeleteContactMessage(id)
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   const index = memory.contactMessages.findIndex((message) => message.id === id)
@@ -783,6 +932,13 @@ export async function getOverview(): Promise<Overview> {
       }
     } catch (error) {
       logDbUnavailable('getOverview', error)
+    }
+  }
+  if (await firebaseIsReady()) {
+    try {
+      return await fbGetOverview()
+    } catch {
+      // Realtime Database indisponível — segue em modo memória.
     }
   }
   const adminNews = await listAdminNews()
